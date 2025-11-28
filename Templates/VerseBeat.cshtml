@@ -1,0 +1,20 @@
+﻿@using ChordSheetMaker
+@model ChordSheetMaker.VerseBeat
+
+<div class="chord">
+    @Model.chord.root@Model.chord.name
+</div>
+<div class="chord_bass">
+@if (!string.IsNullOrEmpty(Model.chord.bass_root))
+{
+    @Model.chord.bass_root
+}
+</div>
+
+<div class="lyric">
+    @Model.lyric.text
+    @if (Model.lyric.has_continuation)
+    {
+        <span class="cont"> - </span>
+    }
+</div>

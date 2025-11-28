@@ -1,0 +1,43 @@
+﻿@using RazorLight
+@using ChordSheetMaker
+@model IEnumerable<ChordSheetMaker.VerseBeat>
+
+<style>
+    .bar {
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        margin: 12px 0;
+        font-family: sans-serif;
+    }
+    .beat {
+        display: inline-block;
+        margin: 0 8px;
+        text-align: center;
+        font-family: sans-serif;
+    }
+
+    .chord {
+        font-weight: bold;
+        border-bottom: 1px solid #ccc;
+        padding: 0 2px;
+    }
+
+    .lyric {
+        padding-top: 4px;
+    }
+
+    .cont {
+        opacity: 0.6;
+        padding-left: 3px;
+    }
+</style>
+
+<div class="bar">
+    @foreach (dynamic beat in Model)
+    {
+    <div class="beat"> @* can't have the await block directly in the for loop. It doesn't compile *@
+        @{ await IncludeAsync("VerseBeat.cshtml", beat); }
+    </div>
+    }
+</div>
