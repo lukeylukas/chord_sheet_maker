@@ -12,7 +12,6 @@
   <ItemGroup>
     <PackageReference Include="RazorLight" Version="2.3.1" />
 	<EmbeddedResource Include="Templates\VerseLine.cshtml" />
-	<EmbeddedResource Include="Templates\VerseBeat.cshtml" />
   </ItemGroup>
 
 </Project>

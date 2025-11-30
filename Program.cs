@@ -55,7 +55,54 @@ namespace ChordSheetMaker
     public class VerseBeat // contains a single verse's chord and lyric
     {
         public Lyric lyric { get; set; } = new Lyric();
-        public Chord chord { get; set; } = new Chord();
+        public string chord { get; set; } = "";
+        private static readonly Dictionary<int, string> chord_names = new Dictionary<int, string> {
+            [6] = "F♭",
+            [7] = "C♭",
+            [8] = "G♭",
+            [9] = "D♭",
+            [10] = "A♭",
+            [11] = "E♭",
+            [12] = "B♭",
+            [13] = "F",
+            [14] = "C",
+            [15] = "G",
+            [16] = "D",
+            [17] = "A",
+            [18] = "E",
+            [19] = "B",
+            [20] = "F♯",
+            [21] = "C♯",
+            [22] = "G♯",
+            [23] = "D♯",
+            [24] = "A♯",
+            [25] = "E♯",
+            [26] = "B♯"
+            // there are double flats below and double sharps above, but we don't need that
+        };
+        private static string EncodeChordString(Chord chord)
+        {
+            string result = "";
+            if (int.TryParse(chord.root, out int root_number))
+            {
+                result += chord_names[root_number] + chord.name;
+                if (int.TryParse(chord.bass_root, out int bass_number))
+                {
+                    result += $"/{chord_names[bass_number]}";
+                }
+            }
+            return result;
+        }
+        public void InitFromBeat(Beat beat, int lyric_index)
+        {
+            chord = EncodeChordString(beat.chord);
+            if (beat.lyrics != null
+                && lyric_index >= 0
+                && lyric_index < beat.lyrics.Count)
+            {
+                lyric = beat.lyrics[lyric_index];
+            }
+        }
     }
     public class MusicSection
     {
@@ -132,8 +179,7 @@ namespace ChordSheetMaker
             {
                 switch (e.Name.ToString())
                 {
-                    case "Harmony": // TODO: doesn't account for underline. Add a new field chord.bass that records the bass
-                                    // (it's actually the root. find another name for current chord.root)
+                    case "Harmony":
                     {
                         if (!string.IsNullOrEmpty(last_chord.root)
                             && !string.IsNullOrEmpty(last_chord.root))
@@ -184,7 +230,7 @@ namespace ChordSheetMaker
                     {
                         measure_start = true;
                         last_chord = new Chord();
-                        // if count of measures without a lyric is 2 or more, it's an interlude
+                        // TODO: if count of measures without a lyric is 2 or more, it's an interlude
                         break;
                     }
                     default:
@@ -340,10 +386,8 @@ namespace ChordSheetMaker
 
                 if (beat.lyrics == null || beat.lyrics.Count == 0)
                 {
-                    VerseBeat chord_beat = new VerseBeat()
-                    {
-                        chord = beat.chord
-                    };
+                    VerseBeat chord_beat = new VerseBeat();
+                    chord_beat.InitFromBeat(beat, -1);
 
                     if (instrumental_section.beats.Count == 0)
                     {
@@ -395,10 +439,9 @@ namespace ChordSheetMaker
 
                     for (int i = 0; i < beat.lyrics.Count; i++)
                     {
-                        beat_processing_lists[i].Add( new VerseBeat() {
-                            chord = beat.chord,
-                            lyric = beat.lyrics[i]
-                        });
+                        var vb = new VerseBeat();
+                        vb.InitFromBeat(beat, i);
+                        beat_processing_lists[i].Add(vb);
                     }
                 }
             }
@@ -608,7 +651,7 @@ namespace ChordSheetMaker
             }
             var assembly = typeof(Program).Assembly;
             var engine = new RazorLightEngineBuilder()
-                .UseEmbeddedResourcesProject(assembly, "ChordSheetMaker.Templates")
+                .UseEmbeddedResourcesProject(assembly, "chord_sheet_maker.Templates")
                 .UseMemoryCachingProvider()
                 .Build();
 
@@ -670,13 +713,8 @@ namespace ChordSheetMaker
                 {
                     foreach (var beat in beatRow)
                     {
-                        string chord = string.IsNullOrEmpty(beat.chord.name)
-                            ? beat.chord.root
-                            : beat.chord.root + beat.chord.name;
-
                         string lyric = beat.lyric?.text ?? "";
-
-                        Console.Write($"[{chord}: {lyric}] ");
+                        Console.Write($"[{beat.chord}: {lyric}] ");
                     }
                     Console.WriteLine();
                 }

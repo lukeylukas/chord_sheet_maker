@@ -3,24 +3,18 @@
 @model IEnumerable<ChordSheetMaker.VerseBeat>
 
 <style>
-    .bar {
-        display: flex;
-        flex-direction: row;
-        gap: 8px;
-        margin: 12px 0;
-        font-family: sans-serif;
-    }
-    .beat {
-        display: inline-block;
-        margin: 0 8px;
-        text-align: center;
+    .line {
+        display: grid;
+        grid-template-rows: auto auto;  /* chord row + lyric row */
+        grid-auto-flow: column;         /* each item goes to next column */
+        grid-auto-columns: min-content; /* each column sizes to its beat */
+        column-gap: 0px;
         font-family: sans-serif;
     }
 
     .chord {
         font-weight: bold;
-        border-bottom: 1px solid #ccc;
-        padding: 0 2px;
+        padding: 0 10px 0 0; @* right padding for chord symbols *@
     }
 
     .lyric {
@@ -33,11 +27,14 @@
     }
 </style>
 
-<div class="bar">
+<div class="line">
     @foreach (dynamic beat in Model)
     {
-    <div class="beat"> @* can't have the await block directly in the for loop. It doesn't compile *@
-        @{ await IncludeAsync("VerseBeat.cshtml", beat); }
+    <div class="chord">@beat.chord</div>
+    <div class="lyric">
+        @beat.lyric.text@(new RazorLight.Text.RawString(
+            beat.lyric.has_continuation ? " - " : "&nbsp;&nbsp;"
+        ))
     </div>
     }
 </div>
