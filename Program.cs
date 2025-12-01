@@ -55,6 +55,7 @@ namespace ChordSheetMaker
     public class VerseBeat // contains a single verse's chord and lyric
     {
         public Lyric lyric { get; set; } = new Lyric();
+        public bool measure_start { get; set; } = false;
         public string chord { get; set; } = "";
         private static readonly Dictionary<int, string> chord_names = new Dictionary<int, string> {
             [6] = "F♭",
@@ -85,7 +86,7 @@ namespace ChordSheetMaker
             string result = "";
             if (int.TryParse(chord.root, out int root_number))
             {
-                result += chord_names[root_number] + chord.name;
+                result += $"{chord_names[root_number]}{chord.name}";
                 if (int.TryParse(chord.bass_root, out int bass_number))
                 {
                     result += $"/{chord_names[bass_number]}";
@@ -95,6 +96,7 @@ namespace ChordSheetMaker
         }
         public void InitFromBeat(Beat beat, int lyric_index)
         {
+            measure_start = beat.measure_start;
             chord = EncodeChordString(beat.chord);
             if (beat.lyrics != null
                 && lyric_index >= 0
@@ -121,10 +123,6 @@ namespace ChordSheetMaker
     }
     class ChordSheetMaker
     {
-        static readonly string[] NoteNames = new[]
-        {
-        "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"
-        };
         public static void Generate(string path, string lyric_file_name)
         {
             try
@@ -182,11 +180,22 @@ namespace ChordSheetMaker
                     case "Harmony":
                     {
                         if (!string.IsNullOrEmpty(last_chord.root)
-                            && !string.IsNullOrEmpty(last_chord.root))
+                            && !string.IsNullOrEmpty(last_chord.bass_root))
                         {
                             AddBeat(beats, last_chord, measure_start, null);
                             measure_start = false;
                             last_chord = new Chord();
+                        }
+
+                        string? root = e.Element("root")?.Value;
+                        if (root == null)
+                        {
+                            root = "";
+                        }
+                        string? name = e.Element("name")?.Value;
+                        if (name == null)
+                        {
+                            name = "";
                         }
 
                         if (e.Element("underline") != null)
@@ -195,12 +204,16 @@ namespace ChordSheetMaker
                             {
                                 last_chord.bass_root = last_chord.root; // assumption that Harmony elements could be in either order
                             }
-                            last_chord.name = e.Element("name")?.Value; // really it's a modifier
-                            last_chord.root = e.Element("root")?.Value; // value of the chord
+                            last_chord.name = name; // really it's a modifier
+                            last_chord.root = root; // value of the chord
                         }
                         else
                         {
-                            last_chord.bass_root = e.Element("root")?.Value;
+                            last_chord.bass_root = root;
+                            if (last_chord.root == "")
+                            {
+                                last_chord.name = name;
+                            }
                         }
                         break;
                     }
@@ -228,6 +241,16 @@ namespace ChordSheetMaker
                     }
                     case "Measure":
                     {
+                        if (last_chord.root != ""
+                            || last_chord.bass_root != "")
+                        {
+                            if (last_chord.root == "")
+                            {
+                                last_chord.root = last_chord.bass_root;
+                                last_chord.bass_root = "";
+                            }
+                            AddBeat(beats, last_chord, measure_start, null);
+                        }
                         measure_start = true;
                         last_chord = new Chord();
                         // TODO: if count of measures without a lyric is 2 or more, it's an interlude
@@ -409,7 +432,7 @@ namespace ChordSheetMaker
                         instrumental_measure_start = true;
                     }
                     instrumental_section.beats[0].Add(chord_beat);
-                    // my_log($"chord {chord_beat.chord.root} added with last lyric {beat_processing_lists[0].Last().lyric.text}");
+                    // my_log($"chord {chord_beat.chord} added with last lyric {beat_processing_lists[0].Last().lyric.text}");
                 }
                 else if (beat_processing_lists.Count != 0 && beat_processing_lists.Count != beat.lyrics.Count)
                 {
@@ -500,9 +523,9 @@ namespace ChordSheetMaker
         {
             bool new_section_formed = false;
             new_section = null;
-            int beats_full_word_count = 0;
             string temp_word = "";
 
+            int beats_full_word_count = 0;
             for (int i = 0; i < beats.Count; i++)
             {
                 VerseBeat beat = beats[i];
@@ -555,10 +578,21 @@ namespace ChordSheetMaker
 
                         if (word_count == lyric_set.lines[lyric_set_index].words.Count)
                         {
-                            int next_verse_start_beat = beat_idx + 1;
-                            new_section.beats.Add(beats.GetRange(beat_start_index, next_verse_start_beat - beat_start_index)); // TODO: doesn't include chords between lines
+                            int next_line_start_beat = -1;
+                            int counter = 1;
+                            while(next_line_start_beat < 0)
+                            {
+                                if (beats.Count == beat_idx + counter
+                                    || beats[beat_idx + counter].measure_start
+                                    || beats[beat_idx + counter].lyric.text != "")
+                                {
+                                    next_line_start_beat = beat_idx + counter;
+                                }
+                                counter++;
+                            };
+                            new_section.beats.Add(beats.GetRange(beat_start_index, next_line_start_beat - beat_start_index)); // TODO: doesn't include chords between lines
 
-                            beat_start_index = next_verse_start_beat;
+                            beat_start_index = next_line_start_beat;
                             word_count = 0;
                             lyric_set_index++;
                         }
@@ -656,26 +690,11 @@ namespace ChordSheetMaker
                 .Build();
 
             string template_key = "VerseLine.cshtml";
-            return await engine.CompileRenderAsync(template_key, sections[0].beats[0]);
-        }
-        static string FormatChord(string? root, string? name)
-        {
-            string rootName = RootToNoteName(root);
-            if (string.IsNullOrEmpty(rootName)) return "";
-            return string.IsNullOrEmpty(name) ? rootName : rootName + name;
-        }
-        static string RootToNoteName(string? rootValue)
-        {
-            if (string.IsNullOrEmpty(rootValue))
-                return "";
-
-            if (int.TryParse(rootValue, out int num))
-                return NoteNames[num % 12];  // wrap safely for >11
-            return rootValue; // fallback
+            return await engine.CompileRenderAsync(template_key, sections[0]);
         }
 
     /* ----------------------------------------------- Helpers -------------------------------------------------- */
-        static void my_log(string msg)
+        public static void my_log(string msg)
         {
             Console.Write(msg + System.Environment.NewLine);
         }
