@@ -30,7 +30,8 @@ class Program
             lyric_file_name = args[1];
         }
 
-        ChordSheetMaker.ChordSheetMaker.Generate(path, lyric_file_name);
+        var maker = new ChordSheetMaker.ChordSheetMaker();
+        maker.Generate(path, lyric_file_name);
     }
 }
 namespace ChordSheetMaker
@@ -111,6 +112,16 @@ namespace ChordSheetMaker
         public string name { get; set; } = "";
         public List<List<VerseBeat>> beats { get; set; } = new();
     }
+    public class Song
+    {
+        public string name { get; set; } = "";
+        public List<MusicSection> sections { get; set; } = new();
+        public Song(string name, List<MusicSection> sections)
+        {
+            this.name = name;
+            this.sections = sections;
+        }
+    }
 
     public class Line
     {
@@ -123,7 +134,8 @@ namespace ChordSheetMaker
     }
     class ChordSheetMaker
     {
-        public static void Generate(string path, string lyric_file_name)
+        string _song_name = "";
+        public void Generate(string path, string lyric_file_name)
         {
             try
             {
@@ -146,10 +158,11 @@ namespace ChordSheetMaker
                 if (structured_lyrics.Count != 0)
                 {
                     List<MusicSection> sections = GenerateStructuredSections(structured_lyrics, beats);
-                    PrintStructuredSections(sections);
+                    var song = new Song(_song_name, sections);
+                    // PrintStructuredSections(sections);
                     Task.Run(async () =>
                     {
-                        string html_text = await GenerateChordSheetHtml(sections);
+                        string html_text = await GenerateChordSheetHtml(song);
                         File.WriteAllText("output.html", html_text);
                     }).Wait();
                 }
@@ -159,14 +172,14 @@ namespace ChordSheetMaker
                 my_log(e.ToString());
             }
         }
-        static List<Beat> ParseElements(XDocument doc)
+        List<Beat> ParseElements(XDocument doc)
         {
             // more elements can be handled as needed.
 
             // in this function we'll also unroll the music, using repeats and codas
             // if the music is unrolled, then the Beat -> VerseBeat transformation is already done.
 
-            List<string> elementTypes = new List<string> { "Harmony", "Chord", "Measure", "Rest"};
+            List<string> elementTypes = new List<string> { "metaTag", "Harmony", "Chord", "Measure", "Rest"};
             var elements = doc.Descendants().Where(e => elementTypes.Contains(e.Name.ToString()));
             var beats = new List<Beat>();
             var syllableCount = 0;
@@ -177,6 +190,15 @@ namespace ChordSheetMaker
             {
                 switch (e.Name.ToString())
                 {
+                    case "metaTag":
+                    {
+                        string? name = (string?)e.Attribute("name");
+                        if (name != null && name == "workTitle")
+                        {
+                            _song_name = e.Value;
+                        }
+                        break;
+                    }
                     case "Harmony":
                     {
                         if (!string.IsNullOrEmpty(last_chord.root)
@@ -671,14 +693,14 @@ namespace ChordSheetMaker
             return input1.Equals(input2, StringComparison.OrdinalIgnoreCase);
         }
 
-        static async Task<string> GenerateChordSheetHtml(List<MusicSection> sections)
+        static async Task<string> GenerateChordSheetHtml(Song song)
         {
-            if (sections == null || sections.Count == 0)
+            if (song == null || song.sections == null || song.sections.Count == 0)
             {
                 my_log("no sections to encode!");
                 return null;
             }
-            else if (sections[0].beats == null || sections[0].beats.Count == 0 || sections[0].beats[0].Count == 0)
+            else if (song.sections[0].beats == null || song.sections[0].beats.Count == 0 || song.sections[0].beats[0].Count == 0)
             {
                 my_log("no lines to encode!");
                 return null;
@@ -690,7 +712,7 @@ namespace ChordSheetMaker
                 .Build();
 
             string template_key = "VerseLine.cshtml";
-            return await engine.CompileRenderAsync(template_key, sections[0]);
+            return await engine.CompileRenderAsync(template_key, song);
         }
 
     /* ----------------------------------------------- Helpers -------------------------------------------------- */

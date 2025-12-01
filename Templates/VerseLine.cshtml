@@ -1,8 +1,26 @@
 ﻿@using RazorLight
 @using ChordSheetMaker
-@model IEnumerable<ChordSheetMaker.VerseBeat>
+@model Song
 
 <style>
+    * {
+        font-family: Arial, sans-serif;
+    }
+
+    .song-title {
+        font-weight: bold;
+        font-size: 24;
+        padding-bottom: 15px;
+    }
+
+    .section {
+        padding-bottom: 15px;
+    }
+
+    .section-title {
+        font-style: italic;
+    }
+
     .line {
         display: grid;
         grid-template-rows: auto auto;  /* chord row + lyric row */
@@ -10,6 +28,7 @@
         grid-auto-columns: min-content; /* each column sizes to its beat */
         column-gap: 0px;
         font-family: sans-serif;
+        padding-bottom: 10px;
     }
 
     .chord {
@@ -19,6 +38,7 @@
 
     .lyric {
         padding-top: 4px;
+        white-space: nowrap;
     }
 
     .cont {
@@ -27,14 +47,28 @@
     }
 </style>
 
-<div class="line">
-    @foreach (dynamic beat in Model)
+<body>
+<div class="song-title">@Model.name</div>
+
+@foreach (dynamic music_section in Model.sections)
+{
+<div class="section">
+    <div class="section-title">@music_section.name</div>
+
+    @foreach (dynamic line in music_section.beats)
     {
-    <div class="chord">@beat.chord</div>
-    <div class="lyric">
-        @beat.lyric.text@(new RazorLight.Text.RawString(
-            beat.lyric.has_continuation ? " - " : "&nbsp;&nbsp;"
-        ))
+    <div class="line">
+        @foreach (dynamic beat in line)
+        {
+        <div class="chord">@beat.chord</div>
+        <div class="lyric">
+            @beat.lyric.text@(new RazorLight.Text.RawString(
+                beat.lyric.has_continuation ? " -&nbsp;" : "&nbsp;&nbsp;"
+            ))
+        </div>
+        }
     </div>
     }
 </div>
+}
+</body>
