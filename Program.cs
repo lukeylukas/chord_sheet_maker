@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using RazorLight;
 using RazorLight.Compilation;
 using System.Reflection;
+using System.IO.Compression;
 
 class Program
 {
@@ -315,7 +316,8 @@ namespace ChordSheetMaker
                 bool has_continuation = syllabic.Equals("begin", StringComparison.OrdinalIgnoreCase)
                                     || syllabic.Equals("middle", StringComparison.OrdinalIgnoreCase);
 
-                text = Regex.Replace(text, @"^\d+\.[\s\u00A0\u202F]*", "");
+                text = Regex.Replace(text, @"^\d+\.[\s\u00A0\u202F]*", ""); // remove leading number, dot and non-breaking space if present
+                text = text.Trim();
 
                 lyrics.Add(new Lyric() {
                     text = text,
@@ -403,7 +405,7 @@ namespace ChordSheetMaker
             // generate structured lyrics from beats, separating into lines and sections.
             return null;
         }
-        static List<MusicSection> GenerateStructuredSections(List<LyricSection> structured_lyrics, List<Beat> beats)
+        static List<MusicSection> GenerateStructuredSections(List<LyricSection> input_lyrics, List<Beat> beats)
         {
             // use the beats gathered from mscx file, and the structured lyrics,
             // to create structured musical sections containing lines of syllables and chords
@@ -411,6 +413,15 @@ namespace ChordSheetMaker
             var beat_processing_lists = new List<List<VerseBeat>>();
             bool instrumental_measure_start = false;
             var musical_sections = new List<MusicSection>();
+
+            var verse_names = new List<string>();
+            
+            var structured_lyrics = new List<LyricSection> ();
+            foreach (var verse in input_lyrics)
+            {
+                structured_lyrics.Add(verse);
+                verse_names.Add(verse.name);
+            }
 
             foreach (Beat beat in beats)
             {
@@ -456,23 +467,24 @@ namespace ChordSheetMaker
                     instrumental_section.beats[0].Add(chord_beat);
                     // my_log($"chord {chord_beat.chord} added with last lyric {beat_processing_lists[0].Last().lyric.text}");
                 }
-                else if (beat_processing_lists.Count != 0 && beat_processing_lists.Count != beat.lyrics.Count)
-                {
-                    string syllables_string = "";
-                    foreach(Lyric lyric in beat.lyrics)
-                    {
-                        syllables_string += $"\'{lyric.text}\', ";
-                    }
-                    my_log($"There are {beat.lyrics.Count} lyrics in this beat but only {beat_processing_lists.Count} sections being generated.");
-                    my_log($"Lyrics: {syllables_string}");
-                    return null;
-                }
                 else
                 {
                     // ProcessInstrumental here so that, if needed, it includes any instrumental into the section after the last word of the section
                     instrumental_section = ProcessInstrumental(musical_sections, beat_processing_lists, instrumental_section);
                     instrumental_measure_start = false;
                     AddFinishedSections(musical_sections, structured_lyrics, beat_processing_lists);
+
+                    if (beat_processing_lists.Count != 0 && beat_processing_lists.Count != beat.lyrics.Count)
+                    {
+                        string syllables_string = "";
+                        foreach(Lyric lyric in beat.lyrics)
+                        {
+                            syllables_string += $"\'{lyric.text}\', ";
+                        }
+                        my_log($"There are {beat.lyrics.Count} lyrics in this beat but {beat_processing_lists.Count} sections being generated.");
+                        my_log($"Lyrics in beat: {syllables_string}");
+                        break;
+                    }
 
                     if (beat_processing_lists.Count == 0)
                     {
@@ -492,7 +504,23 @@ namespace ChordSheetMaker
             }
             ProcessInstrumental(musical_sections, beat_processing_lists, instrumental_section);
             AddFinishedSections(musical_sections, structured_lyrics, beat_processing_lists);
-            return musical_sections;
+            if (structured_lyrics.Count != 0)
+            {
+                PrintRemainingLyrics(structured_lyrics);
+                PrintRemainingBeatLyrics(beat_processing_lists);
+                return new List<MusicSection>();
+            }
+
+            var result = new List<MusicSection>();
+            foreach (var name in verse_names)
+            {
+                foreach(var section in musical_sections)
+                if (section.name == name)
+                {
+                    result.Add(section);
+                }
+            }
+            return result;
         }
         static MusicSection ProcessInstrumental(List<MusicSection> finished_sections, List<List<VerseBeat>> beat_lists, MusicSection instrumental_section)
         {
@@ -531,6 +559,14 @@ namespace ChordSheetMaker
                     new_section != null)
                 {
                     temp_sections.Add(new_section);
+                    foreach(var lyric_verse in structured_lyrics)
+                    {
+                        if (lyric_verse.name == new_section.name)
+                        {
+                            structured_lyrics.Remove(lyric_verse);
+                            break;
+                        }
+                    }
                     beat_lists.RemoveAt(i);
                     // my_log($"new verse added: {finished_sections.Count}");
                 }
@@ -691,6 +727,40 @@ namespace ChordSheetMaker
                 return false;
             }
             return input1.Equals(input2, StringComparison.OrdinalIgnoreCase);
+        }
+        static void PrintRemainingBeatLyrics(List<List<VerseBeat>> verses)
+        {
+            foreach(var verse in verses)
+            {
+                string print_word = "";
+                my_log("Verse from .mscx file:");
+                for (int i = 0; i < verse.Count; i++)
+                {
+                    VerseBeat print_beat = verse[i];
+                    if (print_beat.lyric.text != "")
+                    {
+                        print_word += print_beat.lyric.text;
+                        if (!print_beat.lyric.has_continuation)
+                        {
+                            my_log(print_word);
+                            print_word = "";
+                        }
+                    }
+                }
+                my_log("");
+            }
+        }
+        static void PrintRemainingLyrics(List<LyricSection> structured_lyrics)
+        {
+            foreach(var verse in structured_lyrics)
+            {            
+                my_log("Remaining lyrics from text file:");
+                foreach(var line in verse.lines)
+                {
+                    my_log(string.Join(" ", line.words));
+                }
+                my_log("");
+            }
         }
 
         static async Task<string> GenerateChordSheetHtml(Song song)
