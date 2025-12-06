@@ -18,21 +18,28 @@ class Program
 {
     static void Main(string[] args)
     {
-        if (args.Length < 1 || args.Length > 2)
+        string scoreFile = null;
+        string lyricsFile = null;
+
+        foreach (var arg in args)
         {
-            Console.WriteLine($"Usage: program <file_name> <lyric_file_name(optional)>. {args.Length} args were given");
-            return;
-        }
-        // TODO: validate that args exist as real files with expected types
-        string path = args[0];
-        string lyric_file_name = "";
-        if (args.Length > 1)
-        {
-            lyric_file_name = args[1];
+            if (arg.StartsWith("--score="))
+            {
+                scoreFile = arg.Substring("--score=".Length);
+            }
+            else if (arg.StartsWith("--lyrics="))
+            {
+                lyricsFile = arg.Substring("--lyrics=".Length);
+            }
         }
 
+        if (scoreFile == null)
+        {
+            Console.WriteLine("Usage: program --score=<file> [--lyrics=<file>]");
+            return;
+        }
         var maker = new ChordSheetMaker.ChordSheetMaker();
-        maker.Generate(path, lyric_file_name);
+        maker.Generate(scoreFile, lyricsFile);
     }
 }
 namespace ChordSheetMaker
