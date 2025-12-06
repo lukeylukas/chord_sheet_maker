@@ -20,6 +20,7 @@ class Program
     {
         string scoreFile = null;
         string lyricsFile = null;
+        bool no_bass = false;
 
         foreach (var arg in args)
         {
@@ -31,6 +32,10 @@ class Program
             {
                 lyricsFile = arg.Substring("--lyrics=".Length);
             }
+            else if (arg.StartsWith("--no-bass"))
+            {
+                no_bass = true;
+            }
         }
 
         if (scoreFile == null)
@@ -39,7 +44,7 @@ class Program
             return;
         }
         var maker = new ChordSheetMaker.ChordSheetMaker();
-        maker.Generate(scoreFile, lyricsFile);
+        maker.Generate(scoreFile, lyricsFile, no_bass);
     }
 }
 namespace ChordSheetMaker
@@ -143,12 +148,28 @@ namespace ChordSheetMaker
     class ChordSheetMaker
     {
         string _song_name = "";
-        public void Generate(string path, string lyric_file_name)
+        public void Generate(string path, string lyric_file_name, bool no_bass)
         {
+            string fileName = Path.GetFileNameWithoutExtension(path);
             try
             {
-                XDocument doc = XDocument.Load(path);
-                List<Beat> beats = ParseElements(doc);
+                XDocument doc = new XDocument();
+                if (path.EndsWith(".mscz"))
+                {
+                    var msczBytes = File.ReadAllBytes(path);
+                    string mscxXml = ExtractMscxFromMscz(fileName, msczBytes);
+                    doc = XDocument.Parse(mscxXml);
+                }
+                else if (path.EndsWith(".mscx"))
+                {
+                    doc = XDocument.Load(path);
+                }
+                else
+                {
+                    my_log("path invalid: " + path);
+                    return;
+                }
+                List<Beat> beats = ParseElements(doc, no_bass);
                 // PrintMscxOutput(beats);
 
                 List<LyricSection> structured_lyrics = new List<LyricSection>();
@@ -166,12 +187,17 @@ namespace ChordSheetMaker
                 if (structured_lyrics.Count != 0)
                 {
                     List<MusicSection> sections = GenerateStructuredSections(structured_lyrics, beats);
+                    if (no_bass)
+                    {
+                        RemoveRepeatedChords(sections);
+                    }
                     var song = new Song(_song_name, sections);
                     // PrintStructuredSections(sections);
                     Task.Run(async () =>
                     {
                         string html_text = await GenerateChordSheetHtml(song);
-                        File.WriteAllText("output.html", html_text);
+                        File.WriteAllText(fileName + ".html", html_text);
+                        my_log(fileName + ".html");
                     }).Wait();
                 }
             }
@@ -180,13 +206,27 @@ namespace ChordSheetMaker
                 my_log(e.ToString());
             }
         }
-        List<Beat> ParseElements(XDocument doc)
+        private static string ExtractMscxFromMscz(string fileName, byte[] msczBytes)
+        {
+            using var memoryStream = new MemoryStream(msczBytes);
+            using var zip = new ZipArchive(memoryStream, ZipArchiveMode.Read);
+
+            // The main score file inside is usually named "score.mscx"
+            var entry = zip.GetEntry(fileName + ".mscx");
+            if (entry == null)
+            {
+                throw new FileNotFoundException(".mscx file not found in mscz");
+            }
+
+            using var entryStream = entry.Open();
+            using var reader = new StreamReader(entryStream, Encoding.UTF8);
+
+            return reader.ReadToEnd();   // Return MSCX file as string
+        }
+        
+        List<Beat> ParseElements(XDocument doc, bool no_bass)
         {
             // more elements can be handled as needed.
-
-            // in this function we'll also unroll the music, using repeats and codas
-            // if the music is unrolled, then the Beat -> VerseBeat transformation is already done.
-
             List<string> elementTypes = new List<string> { "metaTag", "Harmony", "Chord", "Measure", "Rest"};
             var elements = doc.Descendants().Where(e => elementTypes.Contains(e.Name.ToString()));
             var beats = new List<Beat>();
@@ -230,7 +270,7 @@ namespace ChordSheetMaker
 
                         if (e.Element("underline") != null)
                         {
-                            if (last_chord.root != "")
+                            if (last_chord.root != "" && !no_bass)
                             {
                                 last_chord.bass_root = last_chord.root; // assumption that Harmony elements could be in either order
                             }
@@ -239,10 +279,18 @@ namespace ChordSheetMaker
                         }
                         else
                         {
-                            last_chord.bass_root = root;
                             if (last_chord.root == "")
                             {
                                 last_chord.name = name;
+                            }
+
+                            if (no_bass)
+                            {
+                                last_chord.root = root;
+                            }
+                            else
+                            {
+                                last_chord.bass_root = root;
                             }
                         }
                         break;
@@ -440,12 +488,6 @@ namespace ChordSheetMaker
                 //         my_log(lyric.text);
                 //     }
                 // }
-
-                // build up the sections, and once they get long enough to match (length of the lyric sections), if the sections match a LyricSection, assign the right name to them.
-                // All lines need to match. otherwise refrains would cause grief
-
-                // if there's any chords with no syllable, hold them in a temporary instrumental_section.
-                // If more lyrics come we can always append that section to each active section.
 
                 if (beat.lyrics == null || beat.lyrics.Count == 0)
                 {
@@ -767,6 +809,28 @@ namespace ChordSheetMaker
                     my_log(string.Join(" ", line.words));
                 }
                 my_log("");
+            }
+        }
+
+        static void RemoveRepeatedChords(List<MusicSection> sections)
+        {
+            foreach (var verse in sections)
+            {
+                foreach (var line in verse.beats)
+                {
+                    string last_chord = "";
+                    foreach (var beat in line)
+                    {
+                        if (beat.chord == last_chord)
+                        {
+                            beat.chord = "";
+                        }
+                        else
+                        {
+                            last_chord = beat.chord;
+                        }
+                    }
+                }
             }
         }
 
