@@ -388,7 +388,6 @@ namespace ChordSheetMaker
             string[] lines = File.ReadAllLines(file_name);
             var result = new List<LyricSection>();
             LyricSection? current_section = null;
-            bool has_started = false;
 
             foreach (var raw in lines)
             {
@@ -400,26 +399,19 @@ namespace ChordSheetMaker
                 }
                 else if (line.StartsWith("Verse") ||
                         line.StartsWith("Chorus") ||
+                        line.StartsWith("Refrain") ||
                         line.StartsWith("Tag") ||
                         line.StartsWith("Bridge"))
                 {
-                    if (!has_started && line.StartsWith("Verse"))
+                    if (current_section != null)
                     {
-                        has_started = true;
+                        result.Add(current_section);
                     }
 
-                    if (has_started)
+                    current_section = new LyricSection
                     {
-                        if (current_section != null)
-                        {
-                            result.Add(current_section);
-                        }
-
-                        current_section = new LyricSection
-                        {
-                            name = line
-                        };
-                    }
+                        name = line
+                    };
                 }
                 else if (current_section != null)
                 {
