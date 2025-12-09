@@ -13,6 +13,7 @@ using RazorLight;
 using RazorLight.Compilation;
 using System.Reflection;
 using System.IO.Compression;
+using System.Linq;
 
 class Program
 {
@@ -21,6 +22,7 @@ class Program
         string scoreFile = null;
         string lyricsFile = null;
         bool no_bass = false;
+        bool generate_html = false;
 
         foreach (var arg in args)
         {
@@ -36,7 +38,12 @@ class Program
             {
                 no_bass = true;
             }
+            else if (arg.StartsWith("--html"))
+            {
+                generate_html = true;
+            }
         }
+        bool generate_chord_pro = true;
 
         if (scoreFile == null)
         {
@@ -44,7 +51,7 @@ class Program
             return;
         }
         var maker = new ChordSheetMaker.ChordSheetMaker();
-        maker.Generate(scoreFile, lyricsFile, no_bass);
+        maker.Generate(scoreFile, lyricsFile, no_bass, generate_html, generate_chord_pro);
     }
 }
 namespace ChordSheetMaker
@@ -148,7 +155,7 @@ namespace ChordSheetMaker
     class ChordSheetMaker
     {
         string _song_name = "";
-        public void Generate(string path, string lyric_file_name, bool no_bass)
+        public void Generate(string path, string lyric_file_name, bool no_bass, bool generate_html, bool generate_chord_pro)
         {
             string fileName = Path.GetFileNameWithoutExtension(path);
             try
@@ -173,18 +180,19 @@ namespace ChordSheetMaker
                 // PrintMscxOutput(beats);
 
                 List<LyricSection> structured_lyrics = new List<LyricSection>();
-                if (lyric_file_name != "")
+                if (!String.IsNullOrEmpty(lyric_file_name))
                 {
                     structured_lyrics = GetLyricsFile(lyric_file_name);
                 }
                 else
                 {
+                    my_log("no lyric file name");
                     // structured_lyrics = GenerateLyricSections(beats);
                 }
                 // my_log($"# lyric sections: {structured_lyrics.Count}");
                 // my_log($"# beats: {beats.Count}");
 
-                if (structured_lyrics.Count != 0)
+                if (structured_lyrics != null && structured_lyrics.Count != 0)
                 {
                     List<MusicSection> sections = GenerateStructuredSections(structured_lyrics, beats);
                     if (no_bass)
@@ -193,12 +201,25 @@ namespace ChordSheetMaker
                     }
                     var song = new Song(_song_name, sections);
                     // PrintStructuredSections(sections);
-                    Task.Run(async () =>
+
+                    if (generate_chord_pro)
                     {
-                        string html_text = await GenerateChordSheetHtml(song);
-                        File.WriteAllText(fileName + ".html", html_text);
-                        my_log(fileName + ".html");
-                    }).Wait();
+                        string chord_pro_text = WriteChordPro(song);
+                        string full_name = fileName + ".chordpro";
+                        File.WriteAllText(full_name, chord_pro_text);
+                        my_log(full_name);
+                    }
+
+                    if (generate_html)
+                    {
+                        Task.Run(async () =>
+                        {
+                            string html_text = await GenerateChordSheetHtml(song);
+                            string full_name = fileName + ".html";
+                            File.WriteAllText(full_name, html_text);
+                            my_log(full_name);
+                        }).Wait();
+                    }
                 }
             }
             catch (IOException e)
@@ -824,6 +845,64 @@ namespace ChordSheetMaker
                     }
                 }
             }
+        }
+
+        static string WriteChordPro(Song song)
+        {
+            string chord_pro = "";
+            int chord_space_minimum = 4;
+            chord_pro += $"{{title: {song.name}}}" + Environment.NewLine;
+            // artist, key, tempo and time can go here, as well as hymnal # if possible
+
+            foreach (var verse in song.sections)
+            {
+                chord_pro += $"{{comment: {verse.name}}}" + Environment.NewLine;
+                foreach (var line in verse.beats)
+                {
+                    int space_count = 0;
+                    bool is_continuation = false;
+                    foreach (var beat in line)
+                    {
+                        if (!is_continuation)
+                        {
+                            chord_pro += " ";
+                        }
+
+                        if (beat.chord != "")
+                        {
+                            if (space_count > 1)
+                            {
+                                int space_idx = chord_pro.LastIndexOf(' ');
+                                int bracket_idx = chord_pro.LastIndexOf(']');
+                                if (space_idx > bracket_idx) // prefer lengthening spaces if possible
+                                {
+                                    chord_pro = chord_pro[..space_idx] + new string(' ', space_count) + chord_pro[(space_idx + 1)..];
+                                }
+                                else // insert hyphen section if needed
+                                {
+                                    string spaces = new string(' ', space_count / 2) + "-" + new string(' ', space_count / 2);
+                                    chord_pro += spaces;
+                                }
+                            }
+                            chord_pro += $"[{beat.chord}]";
+                            space_count = (int)(beat.chord.Length*1.3) - beat.lyric.text.Length + chord_space_minimum;
+                        }
+                        else
+                        {
+                            space_count -= beat.lyric.text.Length;
+                            if (!beat.lyric.has_continuation)
+                            {
+                                space_count--;
+                            }
+                        }
+                        chord_pro += beat.lyric.text;
+                        is_continuation = beat.lyric.has_continuation;
+                    }
+                    chord_pro += Environment.NewLine;
+                }
+                chord_pro += Environment.NewLine;
+            }
+            return chord_pro;
         }
 
         static async Task<string> GenerateChordSheetHtml(Song song)
