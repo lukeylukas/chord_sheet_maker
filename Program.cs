@@ -56,6 +56,13 @@ class Program
 }
 namespace ChordSheetMaker
 {
+    public class SongMetadata
+    {
+        public string author { get; set; } = ""; // composer, lyricist, arranger
+        public string key { get; set; } = ""; // KeySig
+        public string tempo { get; set; } = ""; // Tempo
+        public string time { get; set; } = ""; // TimeSig
+    }
     public class Chord
     {
         public string bass_root { get; set; } = "";
@@ -135,10 +142,12 @@ namespace ChordSheetMaker
     public class Song
     {
         public string name { get; set; } = "";
+        public SongMetadata metadata { get; set; } = new();
         public List<MusicSection> sections { get; set; } = new();
-        public Song(string name, List<MusicSection> sections)
+        public Song(string name, SongMetadata metadata, List<MusicSection> sections)
         {
             this.name = name;
+            this.metadata = metadata;
             this.sections = sections;
         }
     }
@@ -154,7 +163,26 @@ namespace ChordSheetMaker
     }
     class ChordSheetMaker
     {
+        private static readonly Dictionary<string, string> key_names = new Dictionary<string, string> {
+            ["-7"] = "C♭",
+            ["-6"] = "G♭",
+            ["-5"] = "D♭",
+            ["-4"] = "A♭",
+            ["-3"] = "E♭",
+            ["-2"] = "B♭",
+            ["-1"] = "F",
+            ["0"] = "C",
+            ["1"] = "G",
+            ["2"] = "D",
+            ["3"] = "A",
+            ["4"] = "E",
+            ["5"] = "B",
+            ["6"] = "F♯",
+            ["7"] = "C♯"
+        };
         string _song_name = "";
+        SongMetadata _metadata = new SongMetadata();
+
         public void Generate(string path, string lyric_file_name, bool no_bass, bool generate_html, bool generate_chord_pro)
         {
             string fileName = Path.GetFileNameWithoutExtension(path);
@@ -199,7 +227,7 @@ namespace ChordSheetMaker
                     {
                         RemoveRepeatedChords(sections);
                     }
-                    var song = new Song(_song_name, sections);
+                    var song = new Song(_song_name, _metadata, sections);
                     // PrintStructuredSections(sections);
 
                     if (generate_chord_pro)
@@ -248,7 +276,17 @@ namespace ChordSheetMaker
         List<Beat> ParseElements(XDocument doc, bool no_bass)
         {
             // more elements can be handled as needed.
-            List<string> elementTypes = new List<string> { "metaTag", "Harmony", "Chord", "Measure", "Rest"};
+            List<string> elementTypes = new List<string> {
+                "metaTag",
+                "composer",
+                "lyricist",
+                "KeySig",
+                "TimeSig",
+                "Tempo",
+                "Harmony",
+                "Chord",
+                "Measure",
+                "Rest"};
             var elements = doc.Descendants().Where(e => elementTypes.Contains(e.Name.ToString()));
             var beats = new List<Beat>();
             var syllableCount = 0;
@@ -265,6 +303,53 @@ namespace ChordSheetMaker
                         if (name != null && name == "workTitle")
                         {
                             _song_name = e.Value;
+                        }
+                        switch (name)
+                        {
+                            case "workTitle":
+                            {
+                                _song_name = e.Value;
+                                break;
+                            }
+                            case "composer":
+                            case "lyricist":
+                            case "arranger":
+                            {
+                                if (_metadata.author != "" && e.Value.Trim() != "")
+                                {
+                                    _metadata.author += ", ";
+                                }
+                                _metadata.author += e.Value;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    case "KeySig":
+                    {
+                        string? accidentals = e.Element("accidental")?.Value;
+                        if (accidentals != null)
+                        {
+                            _metadata.key = key_names[accidentals];
+                        }
+                        break;
+                    }
+                    case "TimeSig":
+                    {
+                        string? numerator = e.Element("sigN")?.Value;
+                        string? denominator = e.Element("sigD")?.Value;
+                        if (numerator != null && denominator != null)
+                        {
+                            _metadata.time = $"{numerator}/{denominator}";
+                        }
+                        break;
+                    }
+                    case "Tempo":
+                    {
+                        var tempo = e.Element("text")?.Value;
+                        if (tempo != null)
+                        {
+                            _metadata.tempo = tempo.Split('=').Last().Trim();
                         }
                         break;
                     }
@@ -851,8 +936,17 @@ namespace ChordSheetMaker
         {
             string chord_pro = "";
             int chord_space_minimum = 4;
+            if (song.name == "")
+            {
+                return "";
+            }
             chord_pro += $"{{title: {song.name}}}" + Environment.NewLine;
-            // artist, key, tempo and time can go here, as well as hymnal # if possible
+            if (song.metadata.author != "") chord_pro += $"{{author: {song.metadata.author}}}" + Environment.NewLine;
+            if (song.metadata.key != "")    chord_pro += $"{{key: {song.metadata.key}}}" + Environment.NewLine;
+            if (song.metadata.tempo != "")  chord_pro += $"{{tempo: {song.metadata.tempo}}}" + Environment.NewLine;
+            if (song.metadata.time != "")   chord_pro += $"{{time: {song.metadata.time}}}" + Environment.NewLine;
+            chord_pro += Environment.NewLine;
+            // as well as hymnal # if possible
 
             foreach (var verse in song.sections)
             {
