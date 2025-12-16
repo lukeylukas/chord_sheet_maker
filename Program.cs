@@ -231,6 +231,7 @@ namespace ChordSheetMaker
 
                 if (structured_lyrics != null && structured_lyrics.Count != 0)
                 {
+                    FillInWords(structured_lyrics, beats);
                     List<MusicSection> sections = GenerateStructuredSections(structured_lyrics, beats);
                     if (no_bass)
                     {
@@ -573,6 +574,167 @@ namespace ChordSheetMaker
             // generate structured lyrics from beats, separating into lines and sections.
             return null;
         }
+        static void FillInWords(List<LyricSection> structured_lyrics, List<Beat> beats)
+        {
+            // this functionality is needed whether or not there's unrolling. Do it before the unroll.
+            var temp_words = new List<string>(); // stores the temporary parsing for each verse simultaneously as it works through the beats
+            var beat_words = new List<List<string>>();
+            List<bool> verse_matches = new List<bool>();
+            List<int> last_syllable_idx = new List<int>();
+            for (int beat_idx = 0; beat_idx < beats.Count; beat_idx++)
+            {
+                Beat beat = beats[beat_idx];
+                if (beat.lyrics == null || beat.lyrics.Count < beat_words.Count)
+                {
+                    continue;
+                }
+
+                while (beat_words.Count < beat.lyrics.Count)
+                {
+                    temp_words.Add("");
+                    beat_words.Add(new List<string>());
+                    verse_matches.Add(false);
+                    last_syllable_idx.Add(0);
+                }
+
+                for (int verse_idx = 0; verse_idx < beat.lyrics.Count; verse_idx++)
+                {
+                    temp_words[verse_idx] += StripPunctuationFromString(beat.lyrics[verse_idx].text);
+                    if (!beat.lyrics[verse_idx].syllable_follows)
+                    {
+                        beat_words[verse_idx].Add(temp_words[verse_idx]);
+                        temp_words[verse_idx] = "";
+                        last_syllable_idx[verse_idx] = beat_idx;
+                        
+                        foreach (LyricSection lyric_set in structured_lyrics)
+                        {
+                            if (LyricsMatch(lyric_set, beat_words[verse_idx]))
+                            {
+                                verse_matches[verse_idx] = true;
+                                my_log($"Found match for {verse_idx}");
+                            }
+                        }
+                    }
+                }
+
+                // in case there's a chorus before the verses, ensure any fully matching set of sections causes a reset for this function's data
+                bool all_match = true;
+                foreach (bool match in verse_matches)
+                {
+                    if (!match)
+                    {
+                        all_match = false;
+                    }
+                }
+                if (all_match)
+                {
+                    temp_words = new List<string>();
+                    beat_words = new List<List<string>>();
+                    verse_matches = new List<bool>();
+                    last_syllable_idx = new List<int>();
+                }
+            }
+            
+            for (int verse_idx = 0; verse_idx < beat_words.Count; verse_idx++)
+            {
+                my_log($"Verse {verse_idx}");
+                my_log(String.Join(" ", beat_words[verse_idx]));
+            }
+
+            if (verse_matches.Count > 1)
+            {
+                for (int verse_idx = 0; verse_idx < verse_matches.Count; verse_idx++)
+                {
+                    if (!verse_matches[verse_idx])
+                    {
+                        int match_idx = verse_idx - 1;
+                        if (match_idx >= 0
+                            && match_idx < verse_matches.Count
+                            && verse_matches[match_idx]
+                            && last_syllable_idx[verse_idx] < last_syllable_idx[match_idx]
+                            && TryAddingWords(last_syllable_idx, verse_idx, match_idx, beats, beat_words[verse_idx], structured_lyrics))
+                        {
+                            verse_matches[verse_idx] = true;
+                            AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
+                            my_log($"Found synthetic match for {verse_idx}");
+                        }
+
+                        match_idx = verse_idx + 1;
+                        if (match_idx >= 0
+                            && match_idx < verse_matches.Count
+                            && verse_matches[match_idx]
+                            && last_syllable_idx[verse_idx] < last_syllable_idx[match_idx]
+                            && TryAddingWords(last_syllable_idx, verse_idx, match_idx, beats, beat_words[verse_idx], structured_lyrics))
+                        {
+                            verse_matches[verse_idx] = true;
+                            AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
+                            my_log($"Found synthetic match for {verse_idx}");
+                        }
+
+                        if (!verse_matches[verse_idx])
+                        {
+                            my_log($"No match found for section {verse_idx}");
+                        }
+                    }
+                }
+            }
+
+        }
+        static bool TryAddingWords(List<int> last_syllable_idx, int verse_idx, int match_idx, List<Beat> beats, List<string> verse_words, List<LyricSection> lyrics)
+        { // see if a match can be found with words added from another verse
+            bool found_match = false;
+            string temp_word = "";
+            for (int beat_idx = last_syllable_idx[verse_idx] + 1; beat_idx <= last_syllable_idx[match_idx]; beat_idx++)
+            {
+                Beat beat = beats[beat_idx];
+                if (beat.lyrics == null || beat.lyrics.Count < verse_words.Count)
+                {
+                    continue;
+                }
+                temp_word += StripPunctuationFromString(beat.lyrics[beat_idx - 1].text);
+                if (!beat.lyrics[verse_idx].syllable_follows)
+                {
+                    verse_words.Add(temp_word);
+                    temp_word = "";
+                }
+            }
+            foreach (LyricSection lyric_set in lyrics)
+            {
+                if (LyricsMatch(lyric_set, verse_words))
+                {
+                    found_match = true;
+                    last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
+                    break;
+                }
+            }
+            return found_match;
+        }
+        static bool LyricsMatch(LyricSection lyric_set, List<string> word_list)
+        {
+            if (!LyricsLengthsMatch(lyric_set, word_list.Count))
+            {
+                return false;
+            }
+            int next_start_idx = 0;
+            // my_log($"LyricsMatch: length is good at {word_list.Count}. check match against lyric set {lyric_set.name}");
+            foreach (Line line in lyric_set.lines)
+            {
+                if (!WordListsMatch(line.GetWordList(), word_list.GetRange(next_start_idx, line.words.Count)))
+                {
+                    return false;
+                }
+                next_start_idx += line.words.Count;
+            }
+            my_log($"Found section match for {lyric_set.name}");
+            return true;
+        }
+        static void AddWords(List<Beat> beats, int dest_verse_idx, int source_verse_idx, int current_last_syllable_idx, int final_syllable_idx)
+        {
+            for (int beat_idx = current_last_syllable_idx + 1; beat_idx <= final_syllable_idx; beat_idx++)
+            {
+                
+            }
+        }
         static List<MusicSection> GenerateStructuredSections(List<LyricSection> input_lyrics, List<Beat> beats)
         {
             // use the beats gathered from mscx file, and the structured lyrics,
@@ -833,25 +995,6 @@ namespace ChordSheetMaker
                 next_start_idx += line.words.Count;
             }
             return next_start_idx == word_count;
-        }
-        static bool LyricsMatch(LyricSection lyric_set, List<string> word_list)
-        {
-            if (!LyricsLengthsMatch(lyric_set, word_list.Count))
-            {
-                return false;
-            }
-            int next_start_idx = 0;
-            // my_log($"length is good at {word_list.Count}. check match against lyric set {lyric_set.name}");
-            foreach (Line line in lyric_set.lines)
-            {
-                if (!WordListsMatch(line.words, word_list.GetRange(next_start_idx, line.words.Count)))
-                {
-                    return false;
-                }
-                next_start_idx += line.words.Count;
-            }
-            my_log($"found section match for {lyric_set.name}");
-            return true;
         }
         static bool WordListsMatch(List<string> words1, List<string> words2)
         {
