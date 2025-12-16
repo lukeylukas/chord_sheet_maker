@@ -19,8 +19,8 @@ class Program
 {
     static void Main(string[] args)
     {
-        string scoreFile = null;
-        string lyricsFile = null;
+        string scoreFile = "";
+        string lyricsFile = "";
         bool no_bass = false;
         bool generate_html = false;
 
@@ -45,13 +45,22 @@ class Program
         }
         bool generate_chord_pro = true;
 
-        if (scoreFile == null)
+        if (scoreFile == "")
         {
-            Console.WriteLine("Usage: program --score=<file> [--lyrics=<file>]");
+            PrintUsage();
             return;
         }
         var maker = new ChordSheetMaker.ChordSheetMaker();
         maker.Generate(scoreFile, lyricsFile, no_bass, generate_html, generate_chord_pro);
+    }
+    static void PrintUsage()
+    {
+        Console.WriteLine("Usage: program --score=<file>" + Environment.NewLine +
+                          "       [" + Environment.NewLine +
+                          "        --lyrics=<file>" + Environment.NewLine +
+                          "        --html (for optional html printable output)" + Environment.NewLine +
+                          "        --no-bass (to remove bass indicators from chords)]" + Environment.NewLine +
+                          "       ]");
     }
 }
 namespace ChordSheetMaker
@@ -558,7 +567,7 @@ namespace ChordSheetMaker
                         c == '’'
                 ).ToArray());
         }
-        static List<LyricSection> GenerateLyricSections(List<Beat> beats)
+        static List<LyricSection>? GenerateLyricSections(List<Beat> beats)
         {
             // either interpret meter or use help from another source
             // generate structured lyrics from beats, separating into lines and sections.
@@ -1011,12 +1020,12 @@ namespace ChordSheetMaker
             if (song == null || song.sections == null || song.sections.Count == 0)
             {
                 my_log("no sections to encode!");
-                return null;
+                return "";
             }
             else if (song.sections[0].beats == null || song.sections[0].beats.Count == 0 || song.sections[0].beats[0].Count == 0)
             {
                 my_log("no lines to encode!");
-                return null;
+                return "";
             }
             var assembly = typeof(Program).Assembly;
             var engine = new RazorLightEngineBuilder()
