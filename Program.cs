@@ -81,7 +81,24 @@ namespace ChordSheetMaker
     public class Lyric
     {
         public string text { get; set; } = "";
-        public bool has_continuation { get; set; } = false;
+        public bool syllable_follows { get; set; } = false;
+        public bool hyphenated_word_follows { get; set; } = false;
+        public Lyric(string text, bool syllable_follows, bool hyphenated_word_follows)
+        {
+            this.text = ChordSheetMaker.StripPunctuationFromString(text);
+            this.syllable_follows = syllable_follows;
+            this.hyphenated_word_follows = hyphenated_word_follows;
+        }
+        public Lyric() : this(string.Empty, false, false) {}
+        public Lyric(Lyric other)
+        {
+            if (other == null)
+                throw new ArgumentNullException(nameof(other));
+
+            text = other.text;
+            syllable_follows = other.syllable_follows;
+            hyphenated_word_follows = other.hyphenated_word_follows;
+        }
     }
     public class Beat
     {
@@ -163,7 +180,15 @@ namespace ChordSheetMaker
 
     public class Line
     {
-        public List<string> words { get; set; } = new();
+        public List<Lyric> words { get; set; } = new();
+
+        public List<string> GetTextList()
+        {
+            return words
+                .Where(l => !string.IsNullOrWhiteSpace(l.text))
+                .Select(l => l.text)
+                .ToList();
+        }
     }
     public class LyricSection
     {
@@ -231,6 +256,7 @@ namespace ChordSheetMaker
 
                 if (structured_lyrics != null && structured_lyrics.Count != 0)
                 {
+                    InsertHyphensBetweenWords(structured_lyrics, beats);
                     FillInWords(structured_lyrics, beats);
                     List<MusicSection> sections = GenerateStructuredSections(structured_lyrics, beats);
                     if (no_bass)
@@ -485,7 +511,7 @@ namespace ChordSheetMaker
                 string text = lyric.Element("text")?.Value ?? "";
                 string syllabic = lyric.Element("syllabic")?.Value ?? "";
 
-                bool has_continuation = syllabic.Equals("begin", StringComparison.OrdinalIgnoreCase)
+                bool syllable_follows = syllabic.Equals("begin", StringComparison.OrdinalIgnoreCase)
                                     || syllabic.Equals("middle", StringComparison.OrdinalIgnoreCase);
 
                 text = Regex.Replace(text, @"^\d+\.[\s\u00A0\u202F]*", ""); // remove leading number, dot and non-breaking space if present
@@ -498,7 +524,8 @@ namespace ChordSheetMaker
                 lyrics[index] = new Lyric()
                 {
                     text = text,
-                    has_continuation = has_continuation
+                    syllable_follows = syllable_follows,
+                    hyphenated_word_follows = false
                 };
             }
             return lyrics;
@@ -537,9 +564,19 @@ namespace ChordSheetMaker
                 }
                 else if (current_section != null)
                 {
-                    string stripped_line = StripPunctuationFromString(line);
-                    List<string> words = stripped_line.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
-                    current_section.lines.Add(new Line() { words = words });
+                    List<string> words = line.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+                    Line new_line = new Line();
+                    bool syllable_follows = false;
+                    foreach (var word in words)
+                    {
+                        var hyphen_split_words = word.Split('-', StringSplitOptions.RemoveEmptyEntries).ToList();
+                        for (int i = 0; i < hyphen_split_words.Count; i++)
+                        {
+                            bool hyphenated_word_follows = (i < hyphen_split_words.Count - 1);
+                            new_line.words.Add(new Lyric(hyphen_split_words[i], syllable_follows, hyphenated_word_follows));
+                        }
+                    }
+                    current_section.lines.Add(new_line);
                 }
             }
 
@@ -553,13 +590,18 @@ namespace ChordSheetMaker
             // {
             //     for (int j = 0; j < result[i].lines.Count; j++)
             //     {
-            //         my_log(string.Join(" ", result[i].lines[j].words));
+            //         string print_words = "";
+            //         foreach(var lyric in result[i].lines[j].words)
+            //         {
+            //             print_words += lyric.text + " ";
+            //         }
+            //         my_log(print_words);
             //     }
             //     my_log("");
             // }
             return result;
         }
-        static string StripPunctuationFromString(string input)
+        public static string StripPunctuationFromString(string input)
         {
             return new string(input.Where(
                     c => char.IsLetterOrDigit(c) ||
@@ -584,7 +626,7 @@ namespace ChordSheetMaker
             for (int beat_idx = 0; beat_idx < beats.Count; beat_idx++)
             {
                 Beat beat = beats[beat_idx];
-                if (beat.lyrics == null || beat.lyrics.Count < beat_words.Count)
+                if (beat.lyrics == null)
                 {
                     continue;
                 }
@@ -600,18 +642,22 @@ namespace ChordSheetMaker
                 for (int verse_idx = 0; verse_idx < beat.lyrics.Count; verse_idx++)
                 {
                     temp_words[verse_idx] += StripPunctuationFromString(beat.lyrics[verse_idx].text);
-                    if (!beat.lyrics[verse_idx].syllable_follows)
+                    if (!beat.lyrics[verse_idx].syllable_follows
+                        && beat.lyrics[verse_idx].text != "")
                     {
                         beat_words[verse_idx].Add(temp_words[verse_idx]);
                         temp_words[verse_idx] = "";
-                        last_syllable_idx[verse_idx] = beat_idx;
+                        if (beat.lyrics[verse_idx].text != "")
+                        {
+                            last_syllable_idx[verse_idx] = beat_idx;
+                        }
                         
                         foreach (LyricSection lyric_set in structured_lyrics)
                         {
                             if (LyricsMatch(lyric_set, beat_words[verse_idx]))
                             {
                                 verse_matches[verse_idx] = true;
-                                my_log($"Found match for {verse_idx}");
+                                // my_log($"Found match for {lyric_set.name}");
                             }
                         }
                     }
@@ -635,11 +681,11 @@ namespace ChordSheetMaker
                 }
             }
             
-            for (int verse_idx = 0; verse_idx < beat_words.Count; verse_idx++)
-            {
-                my_log($"Verse {verse_idx}");
-                my_log(String.Join(" ", beat_words[verse_idx]));
-            }
+            // for (int verse_idx = 0; verse_idx < beat_words.Count; verse_idx++)
+            // {
+            //     my_log($"Section {verse_idx}");
+            //     my_log(String.Join(" ", beat_words[verse_idx]));
+            // }
 
             if (verse_matches.Count > 1)
             {
@@ -656,19 +702,22 @@ namespace ChordSheetMaker
                         {
                             verse_matches[verse_idx] = true;
                             AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
-                            my_log($"Found synthetic match for {verse_idx}");
+                            last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
+                            my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
                         }
 
                         match_idx = verse_idx + 1;
                         if (match_idx >= 0
                             && match_idx < verse_matches.Count
                             && verse_matches[match_idx]
+                            && !verse_matches[verse_idx]
                             && last_syllable_idx[verse_idx] < last_syllable_idx[match_idx]
                             && TryAddingWords(last_syllable_idx, verse_idx, match_idx, beats, beat_words[verse_idx], structured_lyrics))
                         {
                             verse_matches[verse_idx] = true;
                             AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
-                            my_log($"Found synthetic match for {verse_idx}");
+                            last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
+                            my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
                         }
 
                         if (!verse_matches[verse_idx])
@@ -686,24 +735,29 @@ namespace ChordSheetMaker
             string temp_word = "";
             for (int beat_idx = last_syllable_idx[verse_idx] + 1; beat_idx <= last_syllable_idx[match_idx]; beat_idx++)
             {
-                Beat beat = beats[beat_idx];
-                if (beat.lyrics == null || beat.lyrics.Count < verse_words.Count)
+                if (beats.Count < beat_idx
+                    || beats[beat_idx].lyrics == null
+                    || beats[beat_idx].lyrics.Count <= match_idx
+                    || beats[beat_idx].lyrics[match_idx].text == "")
                 {
                     continue;
                 }
-                temp_word += StripPunctuationFromString(beat.lyrics[beat_idx - 1].text);
-                if (!beat.lyrics[verse_idx].syllable_follows)
+                Beat beat = beats[beat_idx];
+                temp_word += StripPunctuationFromString(beat.lyrics[match_idx].text);
+                if (!beat.lyrics[match_idx].syllable_follows)
                 {
                     verse_words.Add(temp_word);
                     temp_word = "";
                 }
             }
+            // my_log($"Synthetic section as follows:");
+            // my_log(String.Join(" ", verse_words));
+            // my_log("");
             foreach (LyricSection lyric_set in lyrics)
             {
                 if (LyricsMatch(lyric_set, verse_words))
                 {
                     found_match = true;
-                    last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
                     break;
                 }
             }
@@ -719,20 +773,33 @@ namespace ChordSheetMaker
             // my_log($"LyricsMatch: length is good at {word_list.Count}. check match against lyric set {lyric_set.name}");
             foreach (Line line in lyric_set.lines)
             {
-                if (!WordListsMatch(line.GetWordList(), word_list.GetRange(next_start_idx, line.words.Count)))
+                if (!WordListsMatch(line.GetTextList(), word_list.GetRange(next_start_idx, line.words.Count)))
                 {
                     return false;
                 }
                 next_start_idx += line.words.Count;
             }
-            my_log($"Found section match for {lyric_set.name}");
+            // my_log($"Found section match for {lyric_set.name}");
             return true;
         }
         static void AddWords(List<Beat> beats, int dest_verse_idx, int source_verse_idx, int current_last_syllable_idx, int final_syllable_idx)
         {
             for (int beat_idx = current_last_syllable_idx + 1; beat_idx <= final_syllable_idx; beat_idx++)
             {
-                
+                if (beats.Count <= beat_idx)
+                {
+                    my_log($"beat_idx given {beat_idx} is greater than beats count! ({beats.Count}) for section {dest_verse_idx}");
+                    return;
+                }
+                Beat beat = beats[beat_idx];
+                if (beat.lyrics != null && beat.lyrics.Count > source_verse_idx)
+                {
+                    while (beat.lyrics.Count <= dest_verse_idx)
+                    {
+                        beat.lyrics.Add(new Lyric());
+                    }
+                    beat.lyrics[dest_verse_idx] = new Lyric(beat.lyrics[source_verse_idx]);
+                }
             }
         }
         static List<MusicSection> GenerateStructuredSections(List<LyricSection> input_lyrics, List<Beat> beats)
@@ -903,22 +970,8 @@ namespace ChordSheetMaker
         {
             bool new_section_formed = false;
             new_section = null;
-            string temp_word = "";
 
-            int beats_full_word_count = 0;
-            for (int i = 0; i < beats.Count; i++)
-            {
-                VerseBeat beat = beats[i];
-                if (beat.lyric.text != "")
-                {
-                    temp_word += StripPunctuationFromString(beat.lyric.text);
-                    if (!beat.lyric.has_continuation)
-                    {
-                        beats_full_word_count++;
-                        temp_word = "";
-                    }
-                }
-            }
+            int beats_full_word_count = CountWords(beats);
             // my_log($"word count {beats_full_word_count}. {structured_lyrics[0].name} {structured_lyrics[1].name} {structured_lyrics[2].name}");
 
             foreach (LyricSection lyric_set in structured_lyrics)
@@ -933,7 +986,7 @@ namespace ChordSheetMaker
                 {
                     name = lyric_set.name
                 };
-                temp_word = "";
+                string temp_word = "";
                 int lyric_set_index = 0;
                 int word_count = 0;
                 int beat_start_index = 0;
@@ -945,9 +998,9 @@ namespace ChordSheetMaker
                     if (beat.lyric.text != "")
                     {
                         temp_word += StripPunctuationFromString(beat.lyric.text);
-                        if (!beat.lyric.has_continuation)
+                        if (!beat.lyric.syllable_follows)
                         {
-                            if (!WordsMatchNoApostrophe(temp_word, lyric_set.lines[lyric_set_index].words[word_count]))
+                            if (!WordsMatchNoApostrophe(temp_word, lyric_set.lines[lyric_set_index].words[word_count].text))
                             {
                                 // my_log($"word count: {word_count}, beats_word: {temp_word}, lyric: {lyric_set.lines[lyric_set_index].words[word_count]}");
                                 break;
@@ -986,6 +1039,108 @@ namespace ChordSheetMaker
                 }
             }
             return new_section_formed;
+        }
+        static void InsertHyphensBetweenWords(List<LyricSection> structured_lyrics, List<Beat> beats)
+        {
+            List<List<string>> hyphenated_word_set = new List<List<string>>();
+            foreach(var verse in structured_lyrics)
+            {
+                hyphenated_word_set.AddRange(GetHyphenatedWordsLists(verse));
+            }
+            
+            List<bool> processing = new List<bool>();
+            List<int> hyphen_start_beat = new List<int>();
+            List<string> hyphen_word = new List<string>();
+
+            for (int i = 0; i < beats.Count; i++)
+            {
+                if (beats[i].lyrics == null)
+                {
+                    continue;
+                }
+
+                while (processing.Count < beats[i].lyrics.Count)
+                {
+                    processing.Add(false);
+                    hyphen_start_beat.Add(0);
+                    hyphen_word.Add("");
+                };
+
+                for (int verse_idx = 0; verse_idx < beats[i].lyrics.Count; verse_idx++)
+                {
+                    if (beats[i].lyrics[verse_idx].syllable_follows && !processing[verse_idx])
+                    {
+                        hyphen_start_beat[verse_idx] = i;
+                        processing[verse_idx] = true;
+                    }
+                    
+                    if (processing[verse_idx])
+                    {
+                        hyphen_word[verse_idx] = "";
+                        for (int j = hyphen_start_beat[verse_idx]; j <= i; j++)
+                        {
+                            if (beats[j].lyrics != null)
+                            {
+                                hyphen_word[verse_idx] += beats[j].lyrics[verse_idx].text;
+                            }
+                        }
+
+                        for(int set_idx = 0; set_idx < hyphenated_word_set.Count; set_idx++)
+                        {
+                            if (WordsMatchNoApostrophe(StripPunctuationFromString(hyphen_word[verse_idx]), hyphenated_word_set[set_idx][0]))
+                            {
+                                beats[i].lyrics[verse_idx].syllable_follows = false;
+                                beats[i].lyrics[verse_idx].hyphenated_word_follows = true;
+                                hyphenated_word_set[set_idx].RemoveAt(0);
+                                if (hyphenated_word_set[set_idx].Count == 1)
+                                {
+                                    hyphenated_word_set.RemoveAt(set_idx);
+                                }
+                                hyphen_start_beat[verse_idx] = i + 1;
+                            }
+                        }
+                    }
+                    processing[verse_idx] = beats[i].lyrics[verse_idx].syllable_follows;
+                }
+            }
+        }
+        static List<List<string>> GetHyphenatedWordsLists(LyricSection verse)
+        {
+            List<List<string>> word_set = new List<List<string>>();
+            foreach (var line in verse.lines)
+            {
+                for (int i = 0; i < line.words.Count; i++)
+                {
+                    if (line.words[i].hyphenated_word_follows || (i != 0 && line.words[i - 1].hyphenated_word_follows))
+                    {
+                        if (i == 0 || !line.words[i - 1].hyphenated_word_follows)
+                        {
+                            word_set.Add(new List<string>());
+                        }
+                        word_set[^1].Add(line.words[i].text);
+                    }
+                }
+            }
+            return word_set;
+        }
+        static int CountWords(List<VerseBeat> beats)
+        {
+            string temp_word = "";
+            int word_count = 0;
+            for (int i = 0; i < beats.Count; i++)
+            {
+                VerseBeat beat = beats[i];
+                if (beat.lyric.text != "")
+                {
+                    temp_word += StripPunctuationFromString(beat.lyric.text);
+                    if (!beat.lyric.syllable_follows)
+                    {
+                        word_count++;
+                        temp_word = "";
+                    }
+                }
+            }
+            return word_count;
         }
         static bool LyricsLengthsMatch(LyricSection lyric_set, int word_count)
         {
@@ -1043,7 +1198,7 @@ namespace ChordSheetMaker
                     if (print_beat.lyric.text != "")
                     {
                         print_verse += print_beat.lyric.text;
-                        if (!print_beat.lyric.has_continuation)
+                        if (!print_beat.lyric.syllable_follows)
                         {
                             print_verse += " ";
                         }
@@ -1063,7 +1218,12 @@ namespace ChordSheetMaker
             {            
                 foreach(var line in verse.lines)
                 {
-                    my_log(string.Join(" ", line.words));
+                    string print_words = "";
+                    foreach(var lyric in line.words)
+                    {
+                        print_words += lyric.text + " ";
+                    }
+                    my_log(print_words);
                 }
                 my_log("");
             }
@@ -1143,13 +1303,13 @@ namespace ChordSheetMaker
                         else
                         {
                             space_count -= beat.lyric.text.Length;
-                            if (!beat.lyric.has_continuation)
+                            if (!beat.lyric.syllable_follows)
                             {
                                 space_count--;
                             }
                         }
                         chord_pro += beat.lyric.text;
-                        is_continuation = beat.lyric.has_continuation;
+                        is_continuation = beat.lyric.syllable_follows;
                     }
                     chord_pro += Environment.NewLine;
                 }
