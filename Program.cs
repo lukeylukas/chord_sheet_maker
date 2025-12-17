@@ -1274,6 +1274,7 @@ namespace ChordSheetMaker
                 {
                     int space_count = 0;
                     bool is_continuation = false;
+                    string last_chord = "";
                     foreach (var beat in line)
                     {
                         if (!is_continuation)
@@ -1297,8 +1298,12 @@ namespace ChordSheetMaker
                                     chord_pro += spaces;
                                 }
                             }
-                            chord_pro += $"[{beat.chord}]";
-                            space_count = (int)(beat.chord.Length*1.3) - beat.lyric.text.Length + chord_space_minimum;
+                            if (!String.Equals(beat.chord, last_chord))
+                            {
+                                chord_pro += $"[{beat.chord}]";
+                                space_count = (int)(beat.chord.Length*1.3) - beat.lyric.text.Length + chord_space_minimum;
+                                last_chord = beat.chord;
+                            }
                         }
                         else
                         {
