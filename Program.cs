@@ -703,7 +703,7 @@ namespace ChordSheetMaker
                             verse_matches[verse_idx] = true;
                             AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
                             last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
-                            my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
+                            // my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
                         }
 
                         match_idx = verse_idx + 1;
@@ -717,7 +717,7 @@ namespace ChordSheetMaker
                             verse_matches[verse_idx] = true;
                             AddWords(beats, verse_idx, match_idx, last_syllable_idx[verse_idx], last_syllable_idx[match_idx]);
                             last_syllable_idx[verse_idx] = last_syllable_idx[match_idx];
-                            my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
+                            // my_log($"Found synthetic match for {verse_idx}" + Environment.NewLine);
                         }
 
                         if (!verse_matches[verse_idx])
