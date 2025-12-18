@@ -111,6 +111,20 @@ namespace ChordSheetMaker
         public Lyric lyric { get; set; } = new Lyric();
         public bool measure_start { get; set; } = false;
         public string chord { get; set; } = "";
+        public void InitFromBeat(Beat beat, int lyric_index)
+        {
+            measure_start = beat.measure_start;
+            chord = ChordTranslate.EncodeString(beat.chord);
+            if (beat.lyrics != null
+                && lyric_index >= 0
+                && lyric_index < beat.lyrics.Count)
+            {
+                lyric = beat.lyrics[lyric_index];
+            }
+        }
+    }
+    public static class ChordTranslate
+    {
         private static readonly Dictionary<int, string> chord_names = new Dictionary<int, string> {
             [6] = "F♭",
             [7] = "C♭",
@@ -135,7 +149,7 @@ namespace ChordSheetMaker
             [26] = "B♯"
             // there are double flats below and double sharps above, but we don't need that
         };
-        private static string EncodeChordString(Chord chord)
+        public static string EncodeString(Chord chord)
         {
             string result = "";
             if (int.TryParse(chord.root, out int root_number))
@@ -147,17 +161,6 @@ namespace ChordSheetMaker
                 }
             }
             return result;
-        }
-        public void InitFromBeat(Beat beat, int lyric_index)
-        {
-            measure_start = beat.measure_start;
-            chord = EncodeChordString(beat.chord);
-            if (beat.lyrics != null
-                && lyric_index >= 0
-                && lyric_index < beat.lyrics.Count)
-            {
-                lyric = beat.lyrics[lyric_index];
-            }
         }
     }
     public class MusicSection
@@ -314,8 +317,6 @@ namespace ChordSheetMaker
             // more elements can be handled as needed.
             List<string> elementTypes = new List<string> {
                 "metaTag",
-                "composer",
-                "lyricist",
                 "KeySig",
                 "TimeSig",
                 "Tempo",
@@ -1269,6 +1270,8 @@ namespace ChordSheetMaker
             chord_pro += Environment.NewLine;
             // as well as hymnal # if possible
 
+            PlainTextSharpsAndFlats(song);
+
             foreach (var verse in song.sections)
             {
                 chord_pro += $"{{comment: {verse.name}}}" + Environment.NewLine;
@@ -1323,6 +1326,21 @@ namespace ChordSheetMaker
                 chord_pro += Environment.NewLine;
             }
             return chord_pro;
+        }
+
+        static void PlainTextSharpsAndFlats(Song song)
+        {
+            foreach (var verse in song.sections)
+            {
+                foreach (var line in verse.beats)
+                {
+                    foreach (var beat in line)
+                    {
+                        beat.chord = beat.chord.Replace("♭", "b")
+                                               .Replace("♯", "#");
+                    }
+                }
+            }
         }
 
         static async Task<string> GenerateChordSheetHtml(Song song)
