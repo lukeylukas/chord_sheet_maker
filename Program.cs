@@ -1079,7 +1079,9 @@ namespace ChordSheetMaker
                         hyphen_word[verse_idx] = "";
                         for (int j = hyphen_start_beat[verse_idx]; j <= i; j++)
                         {
-                            if (beats[j].lyrics != null)
+                            if (beats[j].lyrics != null
+                                && beats[j].lyrics.Count > verse_idx
+                                && beats[j].lyrics[verse_idx].text != "")
                             {
                                 hyphen_word[verse_idx] += beats[j].lyrics[verse_idx].text;
                             }
