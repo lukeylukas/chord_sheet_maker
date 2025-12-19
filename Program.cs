@@ -68,7 +68,7 @@ namespace ChordSheetMaker
     public class SongMetadata
     {
         public string author { get; set; } = ""; // composer, lyricist, arranger
-        public string key { get; set; } = ""; // KeySig
+        public string key { get; set; } = "C"; // KeySig
         public string tempo { get; set; } = ""; // Tempo
         public string time { get; set; } = ""; // TimeSig
     }
