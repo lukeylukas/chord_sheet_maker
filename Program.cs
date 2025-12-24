@@ -197,6 +197,12 @@ namespace ChordSheetMaker
     {
         public string name { get; set; } = "";
         public List<Line> lines { get; set; } = new();
+        public List<string> GetTextList()
+        {
+            return lines
+                .SelectMany(l => l.GetTextList())
+                .ToList();
+        }
     }
     class ChordSheetMaker
     {
@@ -625,6 +631,7 @@ namespace ChordSheetMaker
             var beat_words = new List<List<string>>();
             List<bool> verse_matches = new List<bool>();
             List<int> last_syllable_idx = new List<int>();
+            List<List<int>> match_indices = new List<List<int>>();
             for (int beat_idx = 0; beat_idx < beats.Count; beat_idx++)
             {
                 Beat beat = beats[beat_idx];
@@ -639,6 +646,13 @@ namespace ChordSheetMaker
                     beat_words.Add(new List<string>());
                     verse_matches.Add(false);
                     last_syllable_idx.Add(0);
+                    match_indices.Add(new List<int>());
+                    if (beat_words.Count != verse_matches.Count)
+                    {
+                        my_log("Something went terribly wrong in FillInWords function");
+                        my_log($"beat_words.Count: {beat_words.Count}");
+                        my_log($"verse_matches.Count: {verse_matches.Count}");
+                    }
                 }
 
                 for (int verse_idx = 0; verse_idx < beat.lyrics.Count; verse_idx++)
@@ -654,13 +668,19 @@ namespace ChordSheetMaker
                             last_syllable_idx[verse_idx] = beat_idx;
                         }
                         
-                        foreach (LyricSection lyric_set in structured_lyrics)
+                        while (match_indices[verse_idx].Count <= structured_lyrics.Count)
                         {
-                            if (LyricsMatch(lyric_set, beat_words[verse_idx]))
+                            match_indices[verse_idx].Add(-2);
+                        };
+                        for (int lyric_set_index = 0; lyric_set_index < structured_lyrics.Count; lyric_set_index++)
+                        {
+                            int match_idx = LyricsMatch(structured_lyrics[lyric_set_index], beat_words[verse_idx]);
+                            if (match_idx == 0x7FFFFFFF)
                             {
                                 verse_matches[verse_idx] = true;
-                                // my_log($"Found match for {lyric_set.name}");
+                                // my_log($"Found match for {structured_lyrics[lyric_set_index].name} with section # {verse_idx}");
                             }
+                            match_indices[verse_idx][lyric_set_index] = match_idx;
                         }
                     }
                 }
@@ -680,6 +700,7 @@ namespace ChordSheetMaker
                     beat_words = new List<List<string>>();
                     verse_matches = new List<bool>();
                     last_syllable_idx = new List<int>();
+                    match_indices = new List<List<int>>();
                 }
             }
             
@@ -725,6 +746,32 @@ namespace ChordSheetMaker
                         if (!verse_matches[verse_idx])
                         {
                             my_log($"No match found for section {verse_idx}");
+                            int closest_lyric_set = 0;
+                            for (int i = 0; i < match_indices.Count; i++)
+                            {
+                                if (match_indices[verse_idx][i] > match_indices[verse_idx][closest_lyric_set])
+                                {
+                                    closest_lyric_set = i;
+                                }
+                            }
+                            int word_fail_idx = match_indices[verse_idx][closest_lyric_set];
+                            List<string> lyrics_text = structured_lyrics[closest_lyric_set].GetTextList();
+                            if (word_fail_idx == -2)
+                            {
+                                my_log($"Match index not aquired for this section.");
+                            }
+                            else if (word_fail_idx == -1 || word_fail_idx >= beat_words[verse_idx].Count)
+                            {
+                                my_log($"Something went wrong. Word Fail Index {word_fail_idx} is out of bounds for beat words of length {beat_words[verse_idx].Count}");
+                            }
+                            else if (word_fail_idx >= lyrics_text.Count)
+                            {
+                                my_log($"Closest match from lyric file, \"{structured_lyrics[closest_lyric_set].name}\", is too short for verse of length {beat_words[verse_idx].Count}");
+                            }
+                            else
+                            {
+                                my_log($"Closest match failed on lyric set word \"{lyrics_text[word_fail_idx]}\"; mscx word \"{beat_words[verse_idx][word_fail_idx]}\", index {word_fail_idx}");
+                            }
                         }
                     }
                 }
@@ -757,7 +804,7 @@ namespace ChordSheetMaker
             // my_log("");
             foreach (LyricSection lyric_set in lyrics)
             {
-                if (LyricsMatch(lyric_set, verse_words))
+                if (LyricsMatch(lyric_set, verse_words) == 0x7FFFFFFF)
                 {
                     found_match = true;
                     break;
@@ -765,24 +812,25 @@ namespace ChordSheetMaker
             }
             return found_match;
         }
-        static bool LyricsMatch(LyricSection lyric_set, List<string> word_list)
+        static int LyricsMatch(LyricSection lyric_set, List<string> word_list)
         {
             if (!LyricsLengthsMatch(lyric_set, word_list.Count))
             {
-                return false;
+                return -1;
             }
             int next_start_idx = 0;
             // my_log($"LyricsMatch: length is good at {word_list.Count}. check match against lyric set {lyric_set.name}");
             foreach (Line line in lyric_set.lines)
             {
-                if (!WordListsMatch(line.GetTextList(), word_list.GetRange(next_start_idx, line.words.Count)))
+                int list_match = WordListsMatch(line.GetTextList(), word_list.GetRange(next_start_idx, line.words.Count));
+                if (list_match != line.GetTextList().Count)
                 {
-                    return false;
+                    return next_start_idx + list_match;
                 }
                 next_start_idx += line.words.Count;
             }
             // my_log($"Found section match for {lyric_set.name}");
-            return true;
+            return 0x7FFFFFFF;
         }
         static void AddWords(List<Beat> beats, int dest_verse_idx, int source_verse_idx, int current_last_syllable_idx, int final_syllable_idx)
         {
@@ -1155,7 +1203,7 @@ namespace ChordSheetMaker
             }
             return next_start_idx == word_count;
         }
-        static bool WordListsMatch(List<string> words1, List<string> words2)
+        static int WordListsMatch(List<string> words1, List<string> words2)
         {
             if (words1.Count != words2.Count)
             {
@@ -1164,17 +1212,17 @@ namespace ChordSheetMaker
                     my_log(word);
                 }
                 my_log($"length not equal. {words1.Count} lyrics vs {words2.Count} beat words");
-                return false;
+                return -1;
             }
             for (int i = 0; i < words1.Count; i++)
             {
                 if (!WordsMatchNoApostrophe(words1[i], words2[i]))
                 {
                     // my_log($"{words1[i]} != {words2[i]}, {words1.Count} words");
-                    return false;
+                    return i;
                 }
             }
-            return true;
+            return words1.Count;
         }
         static bool WordsMatchNoApostrophe(string word1, string word2)
         {
