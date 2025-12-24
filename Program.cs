@@ -516,6 +516,7 @@ namespace ChordSheetMaker
                                     || syllabic.Equals("middle", StringComparison.OrdinalIgnoreCase);
 
                 text = Regex.Replace(text, @"^\d+\.[\s\u00A0\u202F]*", ""); // remove leading number, dot and non-breaking space if present
+                text = Regex.Replace(text, @"^DS\.[\s\u00A0\u202F]*", ""); // remove leading "DS." and non-breaking space if present
                 text = text.Trim();
 
                 while (lyrics.Count <= index)
