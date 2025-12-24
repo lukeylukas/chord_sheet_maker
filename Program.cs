@@ -1180,7 +1180,9 @@ namespace ChordSheetMaker
         {
             return StringsMatch(word1, word2)
                 || word1.Contains("\'")
-                || word2.Contains("\'");
+                || word2.Contains("\'")
+                || word1.Contains("’")
+                || word2.Contains("’");
         }
         static bool StringsMatch(string input1, string input2)
         {
