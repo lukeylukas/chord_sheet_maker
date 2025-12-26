@@ -1313,6 +1313,10 @@ namespace ChordSheetMaker
             {
                 return "";
             }
+            
+            song.metadata.key = song.metadata.key.Replace("♭", "b")
+                                                 .Replace("♯", "#");
+
             chord_pro += $"{{title: {song.name}}}" + Environment.NewLine;
             if (song.metadata.author != "") chord_pro += $"{{author: {song.metadata.author}}}" + Environment.NewLine;
             if (song.metadata.key != "")    chord_pro += $"{{key: {song.metadata.key}}}" + Environment.NewLine;
