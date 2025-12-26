@@ -1429,16 +1429,17 @@ namespace ChordSheetMaker
         {
             foreach (Beat beat in beats)
             {
-                var name = "";
-                if (beat.chord.name != null)
+                var name_string = "";
+                if (beat.chord.name != "")
                 {
-                    name = " " + beat.chord.name;
+                    name_string = " " + beat.chord.name;
                 }
-
-                if (beat.chord.root != null)
+                var bass_string = "";
+                if (beat.chord.bass_root != "")
                 {
-                    Console.WriteLine($"Chord: {beat.chord.root}{name}");
+                    bass_string = "/" + beat.chord.bass_root;
                 }
+                Console.WriteLine($"Chord: {beat.chord.root}{name_string}{bass_string}");
 
                 if (beat.lyrics != null)
                 {
